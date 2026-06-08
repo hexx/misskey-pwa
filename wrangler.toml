@@ -1,6 +1,11 @@
 name = "misskey-pwa-client"
-compatibility_date = "2024-01-01"
-pages_build_output_dir = "./dist"
+main = "dist/index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
 
 [vars]
 NODE_ENV = "production"
