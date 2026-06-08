@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MisskeyService } from '../client/lib/misskey'
 
+// import.meta.envをモック
+vi.stubEnv('DEV', true)
+
 describe('MisskeyService', () => {
   let service: MisskeyService
 
   beforeEach(() => {
     service = new MisskeyService()
+    vi.clearAllMocks()
   })
 
   describe('generateSessionId', () => {
@@ -22,13 +26,23 @@ describe('MisskeyService', () => {
   })
 
   describe('setInstance', () => {
-    it('sets instance URL', () => {
+    it('sets instance host from URL', () => {
       service.setInstance('https://misskey.io')
-      expect(service.getInstanceUrl()).toBe('https://misskey.io')
+      expect(service.getInstanceHost()).toBe('misskey.io')
     })
 
-    it('removes trailing slash from URL', () => {
+    it('sets instance host from URL with trailing slash', () => {
       service.setInstance('https://misskey.io/')
+      expect(service.getInstanceHost()).toBe('misskey.io')
+    })
+
+    it('sets instance host from plain host', () => {
+      service.setInstance('misskey.io')
+      expect(service.getInstanceHost()).toBe('misskey.io')
+    })
+
+    it('returns full URL', () => {
+      service.setInstance('https://misskey.io')
       expect(service.getInstanceUrl()).toBe('https://misskey.io')
     })
   })
@@ -62,6 +76,10 @@ describe('MisskeyService', () => {
       const result = await service.checkMiAuthSession('testsession')
       
       expect(result).toBeNull()
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/miauth/misskey.io/testsession/check'),
+        expect.any(Object)
+      )
     })
 
     it('returns token and user when authenticated', async () => {
@@ -96,6 +114,22 @@ describe('MisskeyService', () => {
       const result = await service.checkMiAuthSession('testsession')
       
       expect(result).toBeNull()
+    })
+  })
+
+  describe('getStreamingUrl', () => {
+    it('throws error when not authenticated', () => {
+      service.setInstance('https://misskey.io')
+      expect(() => service.getStreamingUrl()).toThrow('Authentication required')
+    })
+
+    it('returns streaming URL when authenticated', () => {
+      service.setInstance('https://misskey.io', 'testtoken')
+      const url = service.getStreamingUrl('homeTimeline')
+      
+      expect(url).toContain('/api/streaming/misskey.io')
+      expect(url).toContain('channel=homeTimeline')
+      expect(url).toContain('i=testtoken')
     })
   })
 })

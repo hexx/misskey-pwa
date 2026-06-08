@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import devServer from '@hono/vite-dev-server'
-import pages from '@hono/vite-build/cloudflare-pages'
+import pages from '@hono/vite-build/cloudflare-workers'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
@@ -13,6 +13,7 @@ export default defineConfig({
     }),
     pages({
       entry: 'src/server/index.ts',
+      outputDir: 'dist',
     }),
     VitePWA({
       registerType: 'autoUpdate',
@@ -67,6 +68,10 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    outDir: 'dist/client',
+    emptyOutDir: true,
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

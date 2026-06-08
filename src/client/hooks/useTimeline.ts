@@ -18,7 +18,7 @@ export function useTimeline(
   const [error, setError] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(true)
   const lastNoteIdRef = useRef<string | null>(null)
-  const wsRef = useRef<WebSocket | null>(null)
+  const eventSourceRef = useRef<EventSource | null>(null)
 
   // タイムラインを取得
   const fetchTimeline = useCallback(async (untilId?: string) => {
@@ -78,42 +78,28 @@ export function useTimeline(
     }
   }, [misskeyService])
 
-  // WebSocketストリーミング（オプション）
+  // SSEストリーミング（オプション）
   useEffect(() => {
     if (!enableStreaming || !misskeyService) {
       return
     }
 
-    const instanceUrl = misskeyService.getInstanceUrl()
-    if (!instanceUrl) {
-      return
-    }
-
-    // WebSocket接続を確立
-    const wsUrl = instanceUrl.replace(/^http/, 'ws') + '/streaming'
-    
     try {
-      const ws = new WebSocket(wsUrl)
-      wsRef.current = ws
+      const streamingUrl = misskeyService.getStreamingUrl('homeTimeline')
+      
+      const eventSource = new EventSource(streamingUrl)
+      eventSourceRef.current = eventSource
 
-      ws.onopen = () => {
-        console.log('WebSocket connected')
-        // タイムラインチャンネルに接続
-        ws.send(JSON.stringify({
-          type: 'connect',
-          body: {
-            channel: 'homeTimeline',
-            id: 'timeline',
-          },
-        }))
+      eventSource.onopen = () => {
+        console.log('SSE connected')
       }
 
-      ws.onmessage = (event) => {
+      eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
           
-          if (data.type === 'channel' && data.body?.type === 'note') {
-            const newNote = data.body.body as MisskeyNote
+          if (data.type === 'note') {
+            const newNote = data.body as MisskeyNote
             setNotes(prev => [newNote, ...prev.slice(0, limit - 1)])
           }
         } catch {
@@ -121,21 +107,18 @@ export function useTimeline(
         }
       }
 
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error)
+      eventSource.onerror = (error) => {
+        console.error('SSE error:', error)
+        // 自動再接続はEventSourceが行う
       }
-
-      ws.onclose = () => {
-        console.log('WebSocket disconnected')
-      }
-    } catch {
-      console.error('Failed to connect WebSocket')
+    } catch (err) {
+      console.error('Failed to connect SSE:', err)
     }
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close()
-        wsRef.current = null
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
       }
     }
   }, [enableStreaming, misskeyService, limit])

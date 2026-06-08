@@ -1,28 +1,71 @@
-import { APIClient } from 'misskey-js/api'
 import type { MisskeyUser, MisskeyNote } from '../types/misskey'
 
+// プロキシのベースURL（開発環境と本番環境で異なる）
+const getProxyBaseUrl = (): string => {
+  // 開発環境ではViteの開発サーバーを使用
+  if (import.meta.env.DEV) {
+    return ''
+  }
+  // 本番環境では同じオリジンのプロキシを使用
+  return window.location.origin
+}
+
 export class MisskeyService {
-  private client: APIClient | null = null
-  private instanceUrl: string = ''
+  private instanceHost: string = ''
+  private token: string | null = null
+  private proxyBaseUrl: string = ''
 
   constructor(instanceUrl?: string, token?: string) {
+    this.proxyBaseUrl = getProxyBaseUrl()
     if (instanceUrl) {
       this.setInstance(instanceUrl, token)
     }
   }
 
   setInstance(url: string, token?: string) {
-    // URLを正規化
-    this.instanceUrl = url.replace(/\/$/, '')
-    
-    this.client = new APIClient({
-      origin: this.instanceUrl,
-      credential: token || undefined,
-    })
+    // URLからホスト名のみを抽出
+    try {
+      const urlObj = new URL(url)
+      this.instanceHost = urlObj.host
+    } catch {
+      // URLでない場合はそのまま使用
+      this.instanceHost = url.replace(/^https?:\/\//, '').replace(/\/$/, '')
+    }
+    this.token = token || null
   }
 
   getInstanceUrl(): string {
-    return this.instanceUrl
+    return `https://${this.instanceHost}`
+  }
+
+  getInstanceHost(): string {
+    return this.instanceHost
+  }
+
+  // プロキシ経由でAPIリクエストを送信
+  private async proxyRequest(endpoint: string, body?: Record<string, unknown>): Promise<unknown> {
+    const url = `${this.proxyBaseUrl}/api/proxy/${this.instanceHost}${endpoint}`
+    
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `API request failed: ${response.status}`)
+    }
+    
+    return response.json()
   }
 
   // MiAuth用のセッションIDを生成
@@ -35,22 +78,24 @@ export class MisskeyService {
     return result
   }
 
-  // MiAuth URLを生成
+  // MiAuth URLを生成（直接インスタンスにリダイレクト）
   getMiAuthUrl(sessionId: string, callbackUrl: string, name: string = 'Misskey PWA Client'): string {
     const params = new URLSearchParams({
       name,
       callback: callbackUrl,
     })
-    return `${this.instanceUrl}/miauth/${sessionId}?${params.toString()}`
+    return `${this.getInstanceUrl()}/miauth/${sessionId}?${params.toString()}`
   }
 
-  // MiAuthの認証結果を確認
+  // MiAuthの認証結果を確認（プロキシ経由）
   async checkMiAuthSession(sessionId: string): Promise<{
     token: string
     user: MisskeyUser
   } | null> {
     try {
-      const response = await fetch(`${this.instanceUrl}/api/miauth/${sessionId}/check`, {
+      const url = `${this.proxyBaseUrl}/api/miauth/${this.instanceHost}/${sessionId}/check`
+      
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -64,6 +109,7 @@ export class MisskeyService {
       const data = await response.json()
 
       if (data.ok && data.token) {
+        this.token = data.token
         return {
           token: data.token,
           user: data.user,
@@ -77,58 +123,50 @@ export class MisskeyService {
     }
   }
 
-  // ノート一覧を取得（タイムライン）
+  // ノート一覧を取得（タイムライン）- プロキシ経由
   async getTimeline(limit: number = 20, untilId?: string): Promise<MisskeyNote[]> {
-    if (!this.client) {
-      throw new Error('Client not initialized')
-    }
-
     const params: Record<string, unknown> = { limit }
     if (untilId) {
       params.untilId = untilId
     }
 
-    const response = await this.client.request('notes/timeline', params)
-    return response as unknown as MisskeyNote[]
+    const response = await this.proxyRequest('/notes/timeline', params)
+    return response as MisskeyNote[]
   }
 
-  // ノートを投稿
+  // ノートを投稿 - プロキシ経由
   async postNote(text: string, options?: {
     visibility?: 'public' | 'home' | 'followers' | 'specified'
     cw?: string
     replyId?: string
     renoteId?: string
   }): Promise<MisskeyNote> {
-    if (!this.client) {
-      throw new Error('Client not initialized')
-    }
-
     const params: Record<string, unknown> = { text }
     if (options) {
       Object.assign(params, options)
     }
 
-    const response = await this.client.request('notes/create', params)
-    return (response as { createdNote: MisskeyNote }).createdNote
+    const response = await this.proxyRequest('/notes/create', params) as { createdNote: MisskeyNote }
+    return response.createdNote
   }
 
-  // ユーザー情報を取得
+  // ユーザー情報を取得 - プロキシ経由
   async getMe(): Promise<MisskeyUser> {
-    if (!this.client) {
-      throw new Error('Client not initialized')
-    }
-
-    const response = await this.client.request('i', {})
-    return response as unknown as MisskeyUser
+    const response = await this.proxyRequest('/i', {})
+    return response as MisskeyUser
   }
 
-  // インスタンス情報を取得
+  // インスタンス情報を取得 - プロキシ経由
   async getInstanceInfo(): Promise<Record<string, unknown>> {
-    if (!this.client) {
-      throw new Error('Client not initialized')
-    }
-
-    const response = await this.client.request('meta', {})
+    const response = await this.proxyRequest('/meta', {})
     return response as Record<string, unknown>
+  }
+
+  // SSEストリーミング接続を取得
+  getStreamingUrl(channel: string = 'homeTimeline'): string {
+    if (!this.token) {
+      throw new Error('Authentication required for streaming')
+    }
+    return `${this.proxyBaseUrl}/api/streaming/${this.instanceHost}?channel=${channel}&i=${encodeURIComponent(this.token)}`
   }
 }
