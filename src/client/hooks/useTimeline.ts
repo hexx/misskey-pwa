@@ -68,14 +68,10 @@ export function useTimeline(
       throw new Error('Not authenticated')
     }
 
-    try {
-      const newNote = await misskeyService.postNote(text, options)
-      // 投稿後、タイムラインを更新
-      setNotes(prev => [newNote, ...prev])
-      return newNote
-    } catch (err) {
-      throw err
-    }
+    const newNote = await misskeyService.postNote(text, options)
+    // 投稿後、タイムラインを更新
+    setNotes(prev => [newNote, ...prev])
+    return newNote
   }, [misskeyService])
 
   // SSEストリーミング（オプション）

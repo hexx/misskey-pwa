@@ -86,7 +86,7 @@ app.post('/api/miauth/:instance/:session/check', async (c) => {
 // WebSocketストリーミングプロキシ（SSE経由）
 app.get('/api/streaming/:instance', async (c) => {
   const instance = c.req.param('instance')
-  const channel = c.req.query('channel') || 'homeTimeline'
+  const _channel = c.req.query('channel') || 'homeTimeline'
   const i = c.req.query('i') // 認証トークン
   
   if (!i) {
@@ -95,7 +95,7 @@ app.get('/api/streaming/:instance', async (c) => {
   
   // SSEストリーミングレスポンスを返す
   return c.stream(async (stream) => {
-    const instanceUrl = `wss://${instance}/streaming`
+    const _instanceUrl = `wss://${instance}/streaming`
     
     try {
       // WebSocket接続を確立
